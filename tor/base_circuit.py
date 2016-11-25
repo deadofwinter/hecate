@@ -18,6 +18,7 @@ class BaseCircuit():
     circuit and configure follow on anonymization services.
 
     Args:
+        socks_ip: The ip for the SOCKS5 port to listen on
         socks_port: The local port for the TOR SOCKS5 proxy
         control_port: The local port open to control TOR.  Will be
             configured with a password
@@ -39,20 +40,31 @@ class BaseCircuit():
             as a transparent proxy
         verbose: Turn verbose output on or off
     """
-    def __init__(self, socks_port = 9050, control_port = 9051,
-                 listen_ip = '127.0.0.1', data_dir = False,
-                 exclude_nodes = [], exclude_exits = [],
-                 exit_nodes = [], entry_nodes = [],
+    def __init__(self, socks_ip = '127.0.0.1', socks_port = 9050,
+                 control_port=9051, data_dir = False,
+                 exclude_nodes = None, exclude_exits = None,
+                 exit_nodes = None, entry_nodes = None,
                  trans_ip = False, trans_port = False,
                  verbose = False):
 
         self.verbose = verbose
-        self.listen_port = socks_port
+        self.tor_config = []
         self.control_port = control_port
+
+        if socks_ip and socks_port:
+            self.ip = socks_ip
+            self.port = socks_port
+            self.tor_config['SocksPort'] = '%s:%s' % (socks_ip, socks_port),
+        elif trans_ip and trans_port:
+            self.ip = trans_ip
+            self.port = trans_port
+            self.tor_config['TransPort'] = '%s:%s' % (trans_ip, trans_port)
+        else:
+            self._err('Did not supply configuration details for a transparent'
+                      'proxy or socks proxy.')
 
         #Create tor configuration
         self.tor_config = {
-            'SocksPort': '%s:%s' % (listen_ip, socks_port),
             'ControlPort': '%s' % control_port,
         }
 
@@ -66,9 +78,6 @@ class BaseCircuit():
         self.add_to_config('ExitNodes', exit_nodes)
         self.add_to_config('EntryNodes', entry_nodes)
 
-        if trans_ip and trans_port:
-            self.tor_config['TransPort'] = '%s:%s' % (trans_ip, trans_port)
-
         self.control_passwd = self.gen_passwd()
         self.tor_config['HashedControlPassword'] = self.get_hash(self.control_passwd)
 
@@ -78,7 +87,8 @@ class BaseCircuit():
             take_ownership = True)
 
         self.controller = stem.control.Controller.from_port(port = self.control_port)
-        self.controller.authenticate(self.control_passwd)
+        if self.controller.authenticate(self.control_passwd):
+            self._log('Tunnel started')
 
     def add_to_config(self, key, value):
         """Add a key, value pair to tor_config if value is supplied
@@ -157,7 +167,7 @@ class BaseCircuit():
         Returns:
             A string containing the ip address
         """
-        socks.set_default_proxy(socks.SOCKS5, "localhost", self.listen_port)
+        socks.set_default_proxy(socks.SOCKS5, self.ip, self.port)
         socket.socket = socks.socksocket
         r = urllib.request.urlopen('http://icanhazip.com')
         return str(r.read()).strip()
@@ -174,3 +184,9 @@ class BaseCircuit():
 
     def _now(self):
         return '{:%H:%M:%S}'.format(datetime.datetime.now())
+
+def main():
+    bc = BaseCircuit(verbose=True)
+
+if __name__ == '__main__':
+    main()
